@@ -9,6 +9,24 @@ localrules: all, selected, get_ver_info, merge_abnorm_unmapped
 
 
 # >>> Configuration >>>
+# Tasks such as Juicer Pre, Hiccups, and Arrowhead, may consume a large number,
+# but may only make full advantage of a relative small number of CPU cores.
+# Therefore, in terms of resources allocation, the number of cores allocated to
+# these tasks are determined by memory requested. Refer to the configuration itemes
+# below, and MEM_PER_CORE as well.
+
+# Memory allocation for Juicer tools pre, in MB
+JUICER_PRE_MEM = int(config.get("JUICER_PRE_MEM", 4000))
+
+# Memory allocation for Hiccups, in MB
+JUICER_HICCUPS_MEM = int(config.get("JUICER_HICCUPS_MEM", 4000))
+
+# Memory allocation for Arrowhead, in MB
+JUICER_ARROWHEAD_MEM = int(config.get("JUICER_ARROWHEAD_MEM", 4000))
+
+# Memory allocation for sorting, in MB
+SORT_MEM = int(config.get("SORT_MEM", 6000))
+
 # The ratio between total memory in MB to the number of CPU cores.
 #
 # This config item is important for some clusters such as PSC Bridges-2,
@@ -21,30 +39,38 @@ MEM_PER_CORE = int(config.get("MEM_PER_CORE", 2000))
 WALL_TIME_MAX = int(config.get("WALL_TIME_MAX", 2880))
 
 # Number of threads for bwa mem
-BWA_THREADS = int(config.get("BWA_THREADS", 64))
+BWA_THREADS = int(config.get("BWA_THREADS", 4))
 
-# Memory allocation for sorting, in MB
-SORT_MEM = int(config.get("SORT_MEM", "16000"))
-
-# Memory allocation for Juicer tools pre, in MB
-JUICER_PRE_MEM = int(config.get("JUICER_PRE_MEM", "24000"))
-JUICER_HICCUPS_MEM = int(config.get("JUICER_HICCUPS_MEM", "30000"))
-JUICER_ARROWHEAD_MEM = int(config.get("JUICER_ARROWHEAD_MEM", "8000"))
-
+# List of resolutions for Juicer Pre Resolutions must be delimited by commas.
+# For example, 500000,250000,100000 instructs Juicer Pre to create .hic for
+# three resolutions: 500 kb, 250 kb, and 100 kb. When left blank, the default
+# resolution list are from 2500 kb to 1 kb. Note that for deeply sequenced
+# datasets, generating Hi-C map at 1 kb is expensive.
 JUICER_PRE_RES = config.get("JUICER_PRE_RES", "")
 
-SITE = config.get("SITE", "")
-SITE_FILE = config.get("SITE_FILE", "")
-LIGATION = config.get("LIGATION", "")
-JUST_EXACT = config.get("JUST_EXACT", "")
-FRAG = config.get("FRAG", "")
-
+# Reference genome name. Must be one of the following: hg38, hg19, mm10, mm9
 GENOME = config.get("GENOME")
 assert GENOME in ["mm9", "mm10", "hg38", "hg19"]
-GENOME_PATH = config.get("GENOME_PATH", "")
+
+# Path to the reference genome FASTA file. If left blank, snakemake will try to
+# locate the file within references.
 REF_GENOME = config.get("REF_GENOME", "")
 
+# Name of the restriction sites. Must be one of the following: HindIII, DpnII, MboI, NcoI, Arima
+SITE = config.get("SITE", "")
 
+# Path to the restriction site map. By default, it is restriction_sites/{GENOME}_{SITE}.txt
+SITE_FILE = config.get("SITE_FILE", "")
+
+# Ligation junction sequences. By default, it is determined by SITE.
+LIGATION = config.get("LIGATION", "")
+
+# If non-blank, Juicer Pre will generate the fragment map. Refer to the `-f` option for Juicer Pre for more details
+FRAG = config.get("FRAG", "")
+
+JUST_EXACT = config.get("JUST_EXACT", "")
+
+# Samples to process. Must be separated by `,`
 SAMPLE_IDS = config.get("SAMPLE_IDS", "")
 # <<< Configuration <<<
 
@@ -114,12 +140,9 @@ if SITE_FILE == "":
 ligation = get_ligation_junction()
 
 
-if GENOME_PATH == "":
-    GENOME_PATH = GENOME
-
-
 # Aggregation: all fastq files are processed
 sample_ids, = glob_wildcards("fastq/{sample,[^/]+}")
+
 sample_ids_selected = config.get("SAMPLE_IDS", "").split(",")
 
 rule all:
@@ -600,7 +623,7 @@ rule hic:
         juicer_home=juicer_home,
         site=SITE,
         site_file=SITE_FILE,
-        genome_path=GENOME_PATH,
+        genome=GENOME,
         res=config.get("JUICER_PRE_RES", "")
     shell:
         """
@@ -625,10 +648,10 @@ rule hic:
         if [ -z {params.frag} ]
         then
             java $_JAVA_OPTIONS -jar {params.juicer_home}/juicer_tools.jar pre -s {input.inter} -g {input.hist} -q $mapq -t $tmpdir --threads {resources.hic_threads} $res \
-            {input.merged_nodups} $tmpdir/inter.hic {params.genome_path}
+            {input.merged_nodups} $tmpdir/inter.hic {params.genome}
         else
             java $_JAVA_OPTIONS -jar {params.juicer_home}/juicer_tools.jar pre -f {params.site_file} -s {input.inter} -g {input.hist} -q $mapq -t $tmpdir --threads {resources.hic_threads} $res \
-            {input.merged_nodups} $tmpdir/inter.hic {params.genome_path}
+            {input.merged_nodups} $tmpdir/inter.hic {params.genome}
         fi
 
         mv $tmpdir/inter.hic {output}.tmp
